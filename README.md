@@ -7,7 +7,7 @@ Convert scanned PDF to Word (.docx) using OCR with image processing.
 - **PDF → Word**: Convert scanned PDF pages to editable Word documents
 - **Text layer detection**: Automatically detect pages with text vs scanned pages
 - **Image preprocessing**: Grayscale, denoise, OTSU threshold, deskew
-- **OCR**: PaddleOCR (primary) with Tesseract fallback
+- **OCR**: EasyOCR (primary) with Tesseract fallback
 - **Vietnamese + English**: Support both languages
 - **Windows .exe**: Build standalone executable with PyInstaller
 
@@ -16,7 +16,7 @@ Convert scanned PDF to Word (.docx) using OCR with image processing.
 | Component | Technology |
 |---|---|
 | UI | Streamlit |
-| OCR Engine | PaddleOCR (bundled models) |
+| OCR Engine | EasyOCR (auto-download models) |
 | Image Processing | OpenCV |
 | PDF Processing | pdf2image + pdfminer.six |
 | DOCX Builder | python-docx |
@@ -57,12 +57,12 @@ pip install -r requirements.txt
 pip install pyinstaller
 ```
 
-### Step 4: Download PaddleOCR models (1 lần duy nhất)
+### Step 4: Download EasyOCR models (1 lần duy nhất)
 
 ```powershell
-# Lần đầu chạy sẽ tự download ~150MB models
-# Models lưu tại: %USERPROFILE%\.paddleocr\
-python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='vi'); PaddleOCR(lang='en')"
+# Lần đầu chạy sẽ tự download ~100MB models
+# Models lưu tại: %USERPROFILE%\.EasyOCR\
+python -c "import easyocr; easyocr.Reader(['vi', 'en'], gpu=False)"
 ```
 
 ### Step 5: Copy models vào project (để bundle vào .exe)
@@ -72,7 +72,7 @@ python -c "from paddleocr import PaddleOCR; PaddleOCR(lang='vi'); PaddleOCR(lang
 mkdir assets\ocr_models 2>nul
 
 # Copy models
-xcopy /E /I /Y "%USERPROFILE%\.paddleocr" "assets\ocr_models"
+xcopy /E /I /Y "%USERPROFILE%\.EasyOCR" "assets\ocr_models"
 ```
 
 ### Step 6: Chạy thử (verify)
@@ -165,7 +165,7 @@ PDF2DOCX/
 
 ## Limitations
 
-- PaddleOCR bundle size: ~1.2-1.5GB (includes PaddlePaddle runtime)
+- EasyOCR bundle size: ~800MB-1GB (includes PyTorch runtime)
 - RAM usage: ~800MB-1.2GB during processing
-- Vietnamese OCR accuracy: ~92-95% (depends on image quality)
+- Vietnamese OCR accuracy: ~92-97% (depends on image quality)
 - Large PDFs (>50 pages) may take several minutes to process
