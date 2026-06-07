@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Build artifacts
+dist/
+build/
+*.spec
+
+# Output files
+output/
+*.docx
+*.pdf
+
+# PaddleOCR models (large, don't commit)
+assets/ocr_models/
+assets/poppler/
+assets/tesseract/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+*.temp
