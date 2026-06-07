@@ -1,4 +1,4 @@
-"""OCR engine wrapper: PaddleOCR (primary) + fallback support."""
+"""OCR engine wrapper: EasyOCR (primary) + PaddleOCR/Tesseract fallback."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import cv2
 from PIL import Image
 
-from src.config import PADDLEOCR_MODELS_DIR, DEFAULT_LANG
+from src.config import DEFAULT_LANG
 
 
 @dataclass
@@ -28,54 +29,45 @@ class OcrResult:
     average_confidence: float
 
 
-class PaddleOcrEngine:
-    """PaddleOCR engine với bundled models."""
+class EasyOcrEngine:
+    """EasyOCR engine — ổn định, hỗ trợ vi+en, auto-download models."""
 
     def __init__(self, lang: str = DEFAULT_LANG):
         self.lang = lang
-        self.ocr = None
+        self.reader = None
         self._loaded = False
 
     def _ensure_loaded(self):
-        """Lazy init PaddleOCR (chỉ load khi cần)."""
+        """Lazy init EasyOCR (chỉ load khi cần)."""
         if self._loaded:
             return
 
-        # Set model directory env var
-        os.environ["PADDLEOCR_MODELS_DIR"] = str(PADDLEOCR_MODELS_DIR)
-
         try:
-            from paddleocr import PaddleOCR
+            import easyocr
 
-            # Kiểm tra model files có tồn tại không
-            det_dir = os.path.join(PADDLEOCR_MODELS_DIR, "det")
-            rec_dir = os.path.join(PADDLEOCR_MODELS_DIR, "rec")
-            cls_dir = os.path.join(PADDLEOCR_MODELS_DIR, "cls")
+            # Map language codes
+            lang_list = []
+            if self.lang in ("vi", "auto"):
+                lang_list.append("vi")
+            if self.lang in ("en", "auto"):
+                lang_list.append("en")
+            if not lang_list:
+                lang_list = ["en"]
 
-            model_kwargs = {
-                "lang": self.lang,
-                "use_angle_cls": True,
-                "show_log": False,
-            }
-
-            # Chỉ set custom model path nếu folder tồn tại
-            if os.path.isdir(det_dir):
-                model_kwargs["det_model_dir"] = det_dir
-            if os.path.isdir(rec_dir):
-                model_kwargs["rec_model_dir"] = rec_dir
-            if os.path.isdir(cls_dir):
-                model_kwargs["cls_model_dir"] = cls_dir
-
-            self.ocr = PaddleOCR(**model_kwargs)
+            self.reader = easyocr.Reader(
+                lang_list,
+                gpu=False,
+                verbose=False,
+            )
             self._loaded = True
 
         except ImportError:
             raise RuntimeError(
-                "PaddleOCR not installed. "
-                "Run: pip install paddlepaddle paddleocr"
+                "EasyOCR not installed. "
+                "Run: pip install easyocr"
             )
         except Exception as e:
-            raise RuntimeError(f"Failed to load PaddleOCR: {e}")
+            raise RuntimeError(f"Failed to load EasyOCR: {e}")
 
     def process(self, image: Image.Image) -> OcrResult:
         """OCR 1 ảnh.
@@ -96,31 +88,20 @@ class PaddleOcrEngine:
             arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
 
         # Run OCR
-        results = self.ocr.ocr(arr, cls=True)
-
-        if not results or not results[0]:
-            return OcrResult(blocks=[], full_text="", average_confidence=0.0)
+        results = self.reader.readtext(arr)
 
         blocks = []
         all_text = []
         total_conf = 0.0
 
-        for line in results[0]:
-            bbox = line[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-            text = line[1][0]  # Text content
-            confidence = float(line[1][1])  # Confidence score
-
-            # Convert float coords to int
-            int_bbox = [[int(p[0]), int(p[1])] for p in bbox]
-
-            block = OcrBlock(
-                text=text,
-                confidence=confidence,
-                bbox=int_bbox,
-            )
-            blocks.append(block)
-            all_text.append(text)
-            total_conf += confidence
+        for (bbox, text, confidence) in results:
+            if text.strip():
+                # EasyOCR bbox: [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
+                int_bbox = [[int(p[0]), int(p[1])] for p in bbox]
+                block = OcrBlock(text=text, confidence=confidence, bbox=int_bbox)
+                blocks.append(block)
+                all_text.append(text)
+                total_conf += confidence
 
         avg_conf = total_conf / len(blocks) if blocks else 0.0
 
@@ -135,10 +116,7 @@ class PaddleOcrEngine:
 
 
 class FallbackOcrEngine:
-    """Fallback OCR using Tesseract.
-
-    Dùng khi PaddleOCR không khả dụng.
-    """
+    """Fallback OCR using Tesseract."""
 
     def __init__(self, lang: str = "vie"):
         self.lang = lang
@@ -151,7 +129,6 @@ class FallbackOcrEngine:
 
         try:
             import pytesseract
-            # Try to find tesseract executable
             if os.name == "nt":  # Windows
                 common_paths = [
                     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
@@ -174,7 +151,6 @@ class FallbackOcrEngine:
 
         import pytesseract
 
-        # Get detailed data
         data = pytesseract.image_to_data(
             image,
             lang=self.lang,
@@ -184,7 +160,6 @@ class FallbackOcrEngine:
         blocks = []
         all_text = []
         total_conf = 0.0
-        count = 0
 
         for i in range(len(data["text"])):
             text = data["text"][i].strip()
@@ -201,9 +176,8 @@ class FallbackOcrEngine:
                 blocks.append(block)
                 all_text.append(text)
                 total_conf += conf / 100.0
-                count += 1
 
-        avg_conf = total_conf / count if count > 0 else 0.0
+        avg_conf = total_conf / len(blocks) if blocks else 0.0
 
         return OcrResult(
             blocks=blocks,
@@ -212,28 +186,28 @@ class FallbackOcrEngine:
         )
 
 
-def get_ocr_engine(lang: str = DEFAULT_LANG) -> PaddleOcrEngine | FallbackOcrEngine:
+def get_ocr_engine(lang: str = DEFAULT_LANG):
     """Factory: trả về OCR engine khả dụng nhất.
 
-    Ưu tiên PaddleOCR, fallback sang Tesseract.
+    Ưu tiên EasyOCR, fallback sang Tesseract.
     """
-    engine = PaddleOcrEngine(lang=lang)
+    # Try EasyOCR first
     try:
+        engine = EasyOcrEngine(lang=lang)
         engine._ensure_loaded()
         return engine
-    except RuntimeError:
-        pass
+    except Exception as e:
+        print(f"[OCR] EasyOCR failed: {e}")
 
     # Fallback to Tesseract
-    fallback = FallbackOcrEngine()
-    if fallback.is_available():
-        return fallback
+    try:
+        fallback = FallbackOcrEngine()
+        if fallback.is_available():
+            return fallback
+    except Exception as e:
+        print(f"[OCR] Tesseract fallback failed: {e}")
 
     raise RuntimeError(
         "No OCR engine available. "
-        "Install paddleocr or tesseract."
+        "Install easyocr: pip install easyocr"
     )
-
-
-# Import cv2 cho grayscale conversion trong process()
-import cv2
